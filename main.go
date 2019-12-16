@@ -100,7 +100,7 @@ func watchMain() error {
 			}
 			if event.Op&fsnotify.Remove == 0 {
 				if err := handleFileChangeEvent(event.Name); err != nil {
-					logger.Print("Error processing %s: %v", event.Name, err)
+					logger.Printf("Error processing %s: %v", event.Name, err)
 				}
 			}
 		case err, ok := <-watcher.Errors:

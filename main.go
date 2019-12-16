@@ -86,32 +86,30 @@ func watchMain() error {
 	if err != nil {
 		return err
 	}
-	done := make(chan bool)
-	go func() {
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				if event.Op&fsnotify.Remove == 0 {
-					if err := handleFileChangeEvent(event.Name); err != nil {
-						logger.Print("Error processing %s: %v", event.Name, err)
-					}
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				logger.Println("Error: ", err)
-			}
-		}
-	}()
+
 	err = watcher.Add(inputFile)
 	if err != nil {
 		return err
 	}
-	<-done
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				break
+			}
+			if event.Op&fsnotify.Remove == 0 {
+				if err := handleFileChangeEvent(event.Name); err != nil {
+					logger.Print("Error processing %s: %v", event.Name, err)
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				break
+			}
+			logger.Println("Error: ", err)
+		}
+	}
 
 	return nil
 }

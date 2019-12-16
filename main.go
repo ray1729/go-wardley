@@ -15,11 +15,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/DavidGamba/go-getoptions"
 	"github.com/DavidGamba/go-wardley/hcl"
 	svg "github.com/ajstarks/svgo"
+	"github.com/fsnotify/fsnotify"
 )
 
 var logger = log.New(ioutil.Discard, "", log.LstdFlags)
@@ -47,6 +49,7 @@ func main() {
 	opt := getoptions.New()
 	opt.Bool("help", false, opt.Alias("?"))
 	opt.Bool("debug", false)
+	opt.Bool("watch", false, opt.Description("Treat input file as a directory and watch for changes to *.hcl files in that directory"))
 	opt.BoolVar(&showGuides, "guides", false, opt.Description("Show margins, limits and other guides in drawing"))
 	opt.BoolVar(&serve, "serve", false, opt.Description("Serve the drawing at localhost:8080"))
 	opt.StringVar(&outputFile, "output", "map.svg", opt.Description("Map svg output file"))
@@ -67,11 +70,69 @@ func main() {
 		logger.SetOutput(os.Stderr)
 	}
 	logger.Println(remaining)
-	err = realMain()
+	if opt.Called("watch") {
+		err = watchMain()
+	} else {
+		err = realMain()
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 		os.Exit(1)
 	}
+}
+
+func watchMain() error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+	done := make(chan bool)
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Op&fsnotify.Remove == 0 {
+					if err := handleFileChangeEvent(event.Name); err != nil {
+						logger.Print("Error processing %s: %v", event.Name, err)
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				logger.Println("Error: ", err)
+			}
+		}
+	}()
+	err = watcher.Add(inputFile)
+	if err != nil {
+		return err
+	}
+	<-done
+
+	return nil
+}
+
+func handleFileChangeEvent(filename string) error {
+	ext := filepath.Ext(filename)
+	if ext != ".hcl" {
+		return nil
+	}
+	outputFile := filename[:len(filename)-4] + ".svg"
+	m, err := hcl.ParseHCLFile(filename)
+	if err != nil {
+		return err
+	}
+	inputData = m
+	ofh, err := os.Create(outputFile)
+	if err != nil {
+		return err
+	}
+	drawing(ofh)
+	return ofh.Close()
 }
 
 func realMain() error {
